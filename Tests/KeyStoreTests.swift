@@ -51,6 +51,15 @@ class KeyStoreTests: XCTestCase {
         XCTAssertEqual(keyStore.wallets.count, 2)
     }
 
+    func testCreateWallet() throws {
+        let keyStore = try KeyStore(keyDirectory: keyDirectory)
+        let newWallet = try keyStore.createWallet(password: "password", for: .ethereum)
+
+        XCTAssertEqual(newWallet.accounts.count, 1)
+        XCTAssertEqual(keyStore.wallets.count, 3)
+        XCTAssertNoThrow(try newWallet.getAccount(password: "password"))
+    }
+
     func testCreateHDWallet() throws {
         let derivationPaths = [Coin.ethereum.derivationPath(at: 0)]
         let keyStore = try KeyStore(keyDirectory: keyDirectory)
@@ -65,7 +74,7 @@ class KeyStoreTests: XCTestCase {
         let keyStore = try KeyStore(keyDirectory: keyDirectory)
         let wallet = keyStore.keyWallet!
         try keyStore.update(wallet: wallet, password: "testpassword", newPassword: "password")
-        let account = try wallet.getAccount(password: "password", coin: .ethereum)
+        let account = try wallet.getAccount(password: "password")
 
         XCTAssertNoThrow(try account.sign(hash: Data(repeating: 0, count: 32), password: "password"))
     }
@@ -73,7 +82,7 @@ class KeyStoreTests: XCTestCase {
     func testSigningMultiple() throws {
         let keyStore = try KeyStore(keyDirectory: keyDirectory)
         let wallet = keyStore.keyWallet!
-        let account = try wallet.getAccount(password: "testpassword", coin: .ethereum)
+        let account = try wallet.getAccount(password: "testpassword")
 
         var multipleMessages = [Data]()
         for _ in 0...2000 {
@@ -117,7 +126,7 @@ class KeyStoreTests: XCTestCase {
         let json = try JSONEncoder().encode(key)
 
         let wallet = try keyStore.import(json: json, password: "password", newPassword: "newPassword", coin: .ethereum)
-        let account = try wallet.getAccount(password: "newPassword", coin: .ethereum)
+        let account = try wallet.getAccount(password: "newPassword")
 
         XCTAssertNotNil(keyStore.keyWallet)
         XCTAssertNoThrow(try account.sign(hash: Data(repeating: 0, count: 32), password: "newPassword"))
@@ -131,7 +140,7 @@ class KeyStoreTests: XCTestCase {
 
         XCTAssertEqual(wallet.accounts.count, 1)
 
-        let account = try wallet.getAccount(password: "password", coin: .ethereum)
+        let account = try wallet.getAccount(password: "password")
 
         XCTAssertNotNil(keyStore.keyWallet)
         XCTAssertNoThrow(try account.sign(hash: Data(repeating: 0, count: 32), password: "password"))

@@ -17,8 +17,7 @@ public struct KeystoreKey {
     /// Wallet UUID, optional.
     public var id: String?
 
-    /// Key's address
-    public var address: Address?
+    public var address: String?
 
     /// Key header with encrypted private key and crypto parameters.
     public var crypto: KeystoreKeyHeader
@@ -29,11 +28,17 @@ public struct KeystoreKey {
     /// Key version, must be 3.
     public var version = 3
 
-    /// Default coin for this key.
+    /// Coin
     public var coin: Coin?
 
     /// List of active accounts.
     public var activeAccounts = [Account]()
+
+    /// Creates a new `Key` with a password.
+    public init(password: String, for coin: Coin) throws {
+        let key = PrivateKey()
+        try self.init(password: password, key: key, coin: coin)
+    }
 
     /// Creates a new `Key` with a password.
     public init(password: String) throws {
@@ -48,10 +53,10 @@ public struct KeystoreKey {
     }
 
     /// Initializes a `Key` by encrypting a private key with a password.
-    public init(password: String, key: PrivateKey, coin: Coin?) throws {
+    public init(password: String, key: PrivateKey, coin: Coin) throws {
         id = UUID().uuidString.lowercased()
         crypto = try KeystoreKeyHeader(password: password, data: key.data)
-        self.type = .encryptedKey
+        type = .encryptedKey
         self.coin = coin
     }
 
@@ -67,6 +72,7 @@ public struct KeystoreKey {
 
         type = .hierarchicalDeterministicWallet
         self.passphrase = passphrase
+        self.coin = .none
     }
 
     /// Decrypts the key and returns the private key.
@@ -159,13 +165,17 @@ extension KeystoreKey: Codable {
             self.crypto = try altValues.decode(KeystoreKeyHeader.self, forKey: .crypto)
         }
         version = try values.decode(Int.self, forKey: .version)
+        address = try values.decodeIfPresent(String.self, forKey: .address)
         coin = try values.decodeIfPresent(Coin.self, forKey: .coin)
-        address = try values.decodeIfPresent(String.self, forKey: .address).flatMap({
-            return KeystoreKey.address(for: coin, addressString: $0)
-        })
         activeAccounts = try values.decodeIfPresent([Account].self, forKey: .activeAccounts) ?? []
 
-        if let address = address, activeAccounts.isEmpty {
+        if activeAccounts.isEmpty {
+            // Workaround for old keystores. Adding address as default account
+            let ethereumAddress: EthereumAddress? = {
+                guard let addressString = address else { return .none}
+                return EthereumAddress(string: "0x" + addressString) ?? EthereumAddress(string: addressString) ?? .none
+            }()
+            guard let address = ethereumAddress else { return }
             let account = Account(wallet: .none, address: address, derivationPath: Coin.ethereum.derivationPath(at: 0))
             activeAccounts.append(account)
         }
@@ -180,23 +190,11 @@ extension KeystoreKey: Codable {
             try container.encode(TypeString.mnemonic, forKey: .type)
         }
         try container.encode(id, forKey: .id)
-        try container.encodeIfPresent(address?.description, forKey: .address)
+        try container.encodeIfPresent(address, forKey: .address)
         try container.encode(crypto, forKey: .crypto)
         try container.encode(version, forKey: .version)
         try container.encode(activeAccounts, forKey: .activeAccounts)
         try container.encodeIfPresent(coin, forKey: .coin)
-    }
-
-    static func address(for coin: Coin?, addressString: String) -> Address? {
-        guard let coin = coin else { return EthereumAddress(data: Data(hex: addressString)) }
-        switch coin.blockchain.type {
-        case .ethereum, .wanchain, .vechain:
-            return EthereumAddress(data: Data(hex: addressString))
-        case .bitcoin:
-            return BitcoinAddress(string: addressString)
-        case .tron:
-            return TronAddress(string: addressString)
-        }
     }
 }
 
@@ -206,19 +204,5 @@ private extension String {
             return String(dropFirst(2))
         }
         return self
-    }
-}
-
-extension Coin: Codable {
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let coinID = try container.decode(Int.self)
-        let coin = Coin(coinType: coinID)
-        self = coin
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(self.coinType)
     }
 }
